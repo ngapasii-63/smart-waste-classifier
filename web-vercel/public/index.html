@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="id" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EcoSort AI — Smart Waste Classifier</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Plus Jakarta Sans", sans-serif;
+      }
+      .glass-card {
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(226, 232, 240, 0.9);
+      }
+    </style>
+  </head>
+  <body
+    class="bg-gradient-to-br from-emerald-50 via-slate-50 to-teal-50 text-slate-800 min-h-screen flex flex-col"
+  >
+    <!-- Navbar -->
+    <header class="sticky top-0 z-30 glass-card border-b border-slate-200/80">
+      <div
+        class="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between"
+      >
+        <div class="flex items-center gap-2.5">
+          <div
+            class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white text-xl shadow-md shadow-emerald-500/20"
+          >
+            ♻️
+          </div>
+          <div>
+            <h1
+              class="font-extrabold text-lg tracking-tight text-slate-900 leading-none"
+            >
+              EcoSort <span class="text-emerald-600">AI</span>
+            </h1>
+            <p class="text-[11px] text-slate-500 font-medium mt-0.5">
+              MobileNetV2 • Client-Side Inference
+            </p>
+          </div>
+        </div>
+
+        <div
+          id="model-status"
+          class="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-100 text-amber-800"
+        >
+          <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+          <span>Memuat Model AI...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-4xl w-full mx-auto px-4 py-6 space-y-6">
+      <!-- Hero Info & Threshold -->
+      <div
+        class="glass-card rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      >
+        <div>
+          <h2 class="font-bold text-base sm:text-lg text-slate-900">
+            Asisten Pemilahan Sampah Rumah Tangga
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-600 mt-0.5">
+            Foto sampahmu untuk mengetahui kode tong sampah, panduan daur ulang,
+            dan estimasi nilai Bank Sampah.
+          </p>
+        </div>
+        <div class="bg-slate-100/90 px-3.5 py-2.5 rounded-xl shrink-0">
+          <div
+            class="flex justify-between text-xs font-semibold text-slate-700 mb-1"
+          >
+            <span>Batas Keyakinan:</span>
+            <span id="thresh-val" class="text-emerald-600">60%</span>
+          </div>
+          <input
+            id="thresh-slider"
+            type="range"
+            min="40"
+            max="90"
+            step="5"
+            value="60"
+            class="w-36 accent-emerald-600 cursor-pointer"
+          />
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="grid grid-cols-3 gap-2 bg-slate-200/70 p-1.5 rounded-2xl">
+        <button
+          onclick="switchTab('single')"
+          id="tab-btn-single"
+          class="tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold bg-white text-emerald-700 shadow-sm transition"
+        >
+          📸 Pindai & Kamera
+        </button>
+        <button
+          onclick="switchTab('batch')"
+          id="tab-btn-batch"
+          class="tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:text-slate-900 transition"
+        >
+          🗂️ Batch Scan
+        </button>
+        <button
+          onclick="switchTab('history')"
+          id="tab-btn-history"
+          class="tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:text-slate-900 transition"
+        >
+          📊 Riwayat (<span id="hist-count">0</span>)
+        </button>
+      </div>
+
+      <!-- ==================== TAB 1: SINGLE & CAMERA ==================== -->
+      <section id="tab-single" class="space-y-5">
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+          <!-- Input Buttons -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label
+              class="flex flex-col items-center justify-center border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50 rounded-2xl p-5 cursor-pointer transition text-center"
+            >
+              <span class="text-3xl mb-1.5">🖼️</span>
+              <span class="font-bold text-sm text-slate-800"
+                >Unggah Foto Sampah</span
+              >
+              <span class="text-xs text-slate-500 mt-0.5"
+                >JPG, PNG, atau WebP dari galeri</span
+              >
+              <input
+                id="file-input"
+                type="file"
+                accept="image/*"
+                class="hidden"
+              />
+            </label>
+
+            <button
+              id="btn-toggle-cam"
+              type="button"
+              class="flex flex-col items-center justify-center border-2 border-dashed border-teal-300 hover:border-teal-500 bg-teal-50/50 hover:bg-teal-50 rounded-2xl p-5 cursor-pointer transition text-center"
+            >
+              <span class="text-3xl mb-1.5">📷</span>
+              <span class="font-bold text-sm text-slate-800"
+                >Buka Kamera Langsung</span
+              >
+              <span class="text-xs text-slate-500 mt-0.5"
+                >Jepret objek sampah real-time</span
+              >
+            </button>
+          </div>
+
+          <!-- Live Camera Box (Hidden by default) -->
+          <div
+            id="camera-container"
+            class="hidden space-y-3 bg-slate-900 p-4 rounded-2xl text-white"
+          >
+            <div
+              class="relative overflow-hidden rounded-xl bg-black aspect-video max-h-80 mx-auto flex items-center justify-center"
+            >
+              <video
+                id="webcam"
+                autoplay
+                playsinline
+                class="w-full h-full object-cover"
+              ></video>
+            </div>
+            <div class="flex justify-center gap-3">
+              <button
+                id="btn-capture"
+                type="button"
+                class="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg transition"
+              >
+                📸 Jepret & Analisis
+              </button>
+              <button
+                id="btn-close-cam"
+                type="button"
+                class="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm transition"
+              >
+                Tutup Kamera
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Demo Samples -->
+          <div class="pt-2 border-t border-slate-200/70">
+            <p class="text-xs font-semibold text-slate-500 mb-2">
+              ⚡ Uji Cepat (Tanpa Perlu Cari Foto):
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                onclick="runDemoSample('plastic')"
+                class="text-xs px-3 py-1.5 rounded-lg bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-semibold transition"
+              >
+                🧴 Sampel Plastik
+              </button>
+              <button
+                onclick="runDemoSample('cardboard')"
+                class="text-xs px-3 py-1.5 rounded-lg bg-blue-100/80 hover:bg-blue-200 text-blue-900 font-semibold transition"
+              >
+                📦 Sampel Kardus
+              </button>
+              <button
+                onclick="runDemoSample('metal')"
+                class="text-xs px-3 py-1.5 rounded-lg bg-slate-200/80 hover:bg-slate-300 text-slate-900 font-semibold transition"
+              >
+                🥫 Sampel Kaleng
+              </button>
+              <button
+                onclick="runDemoSample('paper')"
+                class="text-xs px-3 py-1.5 rounded-lg bg-sky-100/80 hover:bg-sky-200 text-sky-900 font-semibold transition"
+              >
+                📄 Sampel Kertas
+              </button>
+              <button
+                onclick="runDemoSample('glass')"
+                class="text-xs px-3 py-1.5 rounded-lg bg-yellow-100/80 hover:bg-yellow-200 text-yellow-900 font-semibold transition"
+              >
+                🫙 Sampel Kaca
+              </button>
+              <button
+                onclick="runDemoSample('trash')"
+                class="text-xs px-3 py-1.5 rounded-lg bg-zinc-200/80 hover:bg-zinc-300 text-zinc-900 font-semibold transition"
+              >
+                🗑️ Sampel Residu
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Result Card -->
+        <div
+          id="result-section"
+          class="hidden glass-card rounded-2xl p-5 shadow-md space-y-5"
+        >
+          <div
+            id="low-conf-alert"
+            class="hidden p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs sm:text-sm font-medium"
+          >
+            ⚠️
+            <strong>Tingkat keyakinan di bawah ambang batas!</strong>
+            Pencahayaan kurang atau latar terlalu ramai. Coba arahkan kamera
+            lebih dekat ke 1 objek sampah.
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
+            <!-- Preview Image -->
+            <div class="md:col-span-5 space-y-2">
+              <div
+                class="rounded-xl overflow-hidden border border-slate-200 bg-slate-100 aspect-square flex items-center justify-center"
+              >
+                <img
+                  id="preview-img"
+                  src=""
+                  alt="Preview Sampah"
+                  class="w-full h-full object-contain"
+                />
+              </div>
+              <p
+                id="preview-caption"
+                class="text-[11px] text-center text-slate-500 font-medium"
+              ></p>
+            </div>
+
+            <!-- Classification Details -->
+            <div class="md:col-span-7 space-y-4">
+              <div
+                id="res-banner"
+                class="p-4 rounded-xl border-l-8 bg-slate-50"
+              >
+                <span
+                  id="res-badge"
+                  class="inline-block px-3 py-1 rounded-full text-xs font-bold text-white mb-2"
+                ></span>
+                <h3
+                  id="res-title"
+                  class="text-xl sm:text-2xl font-extrabold text-slate-900"
+                ></h3>
+                <div class="mt-2 flex flex-wrap gap-3 text-xs sm:text-sm">
+                  <span
+                    class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 font-semibold"
+                  >
+                    Keyakinan:
+                    <strong id="res-conf" class="text-emerald-600"></strong>
+                  </span>
+                  <span
+                    class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 font-semibold"
+                  >
+                    Estimasi Bank Sampah:
+                    <strong id="res-price" class="text-slate-800"></strong>
+                  </span>
+                </div>
+              </div>
+
+              <div
+                class="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs sm:text-sm text-emerald-950"
+              >
+                <p class="font-bold mb-1">💡 Panduan Pemilahan:</p>
+                <p id="res-guide" class="leading-relaxed"></p>
+              </div>
+
+              <!-- Explainable AI Bar Chart -->
+              <div class="space-y-2 pt-1">
+                <p
+                  class="text-xs font-bold text-slate-600 uppercase tracking-wider"
+                >
+                  Distribusi Probabilitas 6 Kelas (Explainable AI)
+                </p>
+                <div id="prob-bars" class="space-y-2"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== TAB 2: BATCH SCAN ==================== -->
+      <section id="tab-batch" class="hidden space-y-4">
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+          <div>
+            <h3 class="font-bold text-base text-slate-900">
+              Pindai Banyak Foto Sekaligus
+            </h3>
+            <p class="text-xs text-slate-600">
+              Pilih beberapa foto sampah dari galeri untuk mengelompokkannya
+              otomatis ke tong sampah yang tepat.
+            </p>
+          </div>
+
+          <label
+            class="flex flex-col items-center justify-center border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/40 rounded-2xl p-6 cursor-pointer transition text-center"
+          >
+            <span class="text-3xl mb-1">📂</span>
+            <span class="font-bold text-sm text-slate-800"
+              >Pilih Beberapa Foto Sekaligus</span
+            >
+            <span class="text-xs text-slate-500 mt-0.5"
+              >Bisa memilih 2 hingga 15 foto dalam sekali klik</span
+            >
+            <input
+              id="batch-input"
+              type="file"
+              accept="image/*"
+              multiple
+              class="hidden"
+            />
+          </label>
+
+          <div
+            id="batch-grid"
+            class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2"
+          ></div>
+        </div>
+      </section>
+
+      <!-- ==================== TAB 3: HISTORY & ECO-WALLET ==================== -->
+      <section id="tab-history" class="hidden space-y-4">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="glass-card p-4 rounded-2xl">
+            <p class="text-xs text-slate-500 font-semibold">Total Dipindai</p>
+            <p
+              id="stat-total"
+              class="text-2xl font-extrabold text-slate-900 mt-1"
+            >
+              0 item
+            </p>
+          </div>
+          <div class="glass-card p-4 rounded-2xl">
+            <p class="text-xs text-slate-500 font-semibold">Layak Daur Ulang</p>
+            <p
+              id="stat-recycle"
+              class="text-2xl font-extrabold text-emerald-600 mt-1"
+            >
+              0 item
+            </p>
+          </div>
+          <div class="glass-card p-4 rounded-2xl">
+            <p class="text-xs text-slate-500 font-semibold">Estimasi Berat</p>
+            <p
+              id="stat-weight"
+              class="text-2xl font-extrabold text-blue-600 mt-1"
+            >
+              0 gr
+            </p>
+          </div>
+          <div class="glass-card p-4 rounded-2xl">
+            <p class="text-xs text-slate-500 font-semibold">
+              Potensi Bank Sampah
+            </p>
+            <p
+              id="stat-money"
+              class="text-2xl font-extrabold text-amber-600 mt-1"
+            >
+              Rp 0
+            </p>
+          </div>
+        </div>
+
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="font-bold text-base text-slate-900">
+              Catatan Pemilahan Sesi Ini
+            </h3>
+            <div class="flex gap-2">
+              <button
+                onclick="downloadCSV()"
+                class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition"
+              >
+                📥 Unduh Laporan CSV
+              </button>
+              <button
+                onclick="clearHistory()"
+                class="px-3.5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition"
+              >
+                🗑️ Reset
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-xs sm:text-sm">
+              <thead>
+                <tr class="border-b border-slate-200 text-slate-500">
+                  <th class="py-2.5 px-2">Waktu</th>
+                  <th class="py-2.5 px-2">Objek</th>
+                  <th class="py-2.5 px-2">Kategori</th>
+                  <th class="py-2.5 px-2">Tong Sampah</th>
+                  <th class="py-2.5 px-2">Keyakinan</th>
+                </tr>
+              </thead>
+              <tbody id="history-tbody" class="divide-y divide-slate-100">
+                <tr>
+                  <td colspan="5" class="py-6 text-center text-slate-400">
+                    Belum ada riwayat pemindaian.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="text-center text-xs text-slate-500 py-5 px-4">
+      Smart Waste Classifier • Proyek UAS Kecerdasan Artifisial 2026 • Powered
+      by MobileNetV2 & ONNX Web
+    </footer>
+
+    <!-- Hidden canvas for preprocessing -->
+    <canvas id="prep-canvas" width="224" height="224" class="hidden"></canvas>
+
+    <script>
+      const CLASSES = [
+        "cardboard",
+        "glass",
+        "metal",
+        "paper",
+        "plastic",
+        "trash",
+      ];
+
+      const WASTE_INFO = {
+        cardboard: {
+          nama: "Kardus / Karton",
+          ikon: "📦",
+          tong: "Tong Biru (Anorganik Kertas)",
+          hargaKg: 2000,
+          beratGram: 150,
+          hargaText: "Rp 1.500 – Rp 2.500 / kg",
+          panduan:
+            "Lipat atau pipihkan kardus agar hemat ruang penyimpanan. Pastikan tidak basah atau terkena minyak makanan.",
+          hex: "#1E88E5",
+        },
+        glass: {
+          nama: "Kaca / Beling",
+          ikon: "🫙",
+          tong: "Tong Kuning (Anorganik Kemasan)",
+          hargaKg: 800,
+          beratGram: 200,
+          hargaText: "Rp 500 – Rp 1.000 / kg",
+          panduan:
+            "Bilas sisa cairan di dalam botol/toples kaca. Jika pecah, bungkus koran/kardus tebal demi keamanan petugas.",
+          hex: "#D97706",
+        },
+        metal: {
+          nama: "Logam / Kaleng",
+          ikon: "🥫",
+          tong: "Tong Kuning (Anorganik Logam)",
+          hargaKg: 12000,
+          beratGram: 18,
+          hargaText: "Rp 10.000 – Rp 14.000 / kg",
+          panduan:
+            "Kosongkan isi kaleng, bilas singkat dengan air, lalu pipihkan sebelum disetorkan ke Bank Sampah.",
+          hex: "#475569",
+        },
+        paper: {
+          nama: "Kertas",
+          ikon: "📄",
+          tong: "Tong Biru (Anorganik Kertas)",
+          hargaKg: 2000,
+          beratGram: 20,
+          hargaText: "Rp 1.500 – Rp 2.500 / kg",
+          panduan:
+            "Pisahkan kertas kering (HVS, koran, buku) dari tisu bekas atau kertas pembungkus makanan yang berminyak.",
+          hex: "#0284C7",
+        },
+        plastic: {
+          nama: "Plastik",
+          ikon: "🧴",
+          tong: "Tong Kuning (Anorganik Plastik)",
+          hargaKg: 3000,
+          beratGram: 25,
+          hargaText: "Rp 2.000 – Rp 4.000 / kg",
+          panduan:
+            "Kosongkan botol/gelas plastik, lepas label kemasan jika mudah, dan remukkan untuk menghemat volume.",
+          hex: "#EA580C",
+        },
+        trash: {
+          nama: "Sampah Residu",
+          ikon: "🗑️",
+          tong: "Tong Abu-abu / Hitam (Residu TPA)",
+          hargaKg: 0,
+          beratGram: 30,
+          hargaText: "Tidak bernilai jual (Buang ke TPA)",
+          panduan:
+            "Masukkan ke tempat sampah residu tertutup. Jangan dicampur dengan sampah daur ulang yang bersih.",
+          hex: "#334155",
+        },
+      };
+
+      let ortSession = null;
+      let scanHistory = [];
+      let cameraStream = null;
+
+      // 1. Load ONNX Model
+      async function initModel() {
+        const statusEl = document.getElementById("model-status");
+        try {
+          ortSession = await ort.InferenceSession.create(
+            "./model/waste_model.onnx",
+            {
+              executionProviders: ["wasm"],
+            },
+          );
+          statusEl.className =
+            "flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-800";
+          statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span><span>AI Siap Digunakan</span>`;
+        } catch (err) {
+          console.error(err);
+          statusEl.className =
+            "flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-red-100 text-red-800";
+          statusEl.innerHTML = `<span>Gagal Memuat Model</span>`;
+        }
+      }
+      initModel();
+
+      // 2. Slider Threshold
+      const threshSlider = document.getElementById("thresh-slider");
+      const threshVal = document.getElementById("thresh-val");
+      threshSlider.addEventListener("input", () => {
+        threshVal.textContent = threshSlider.value + "%";
+      });
+
+      // 3. Tab Switcher
+      function switchTab(tabName) {
+        ["single", "batch", "history"].forEach((t) => {
+          document
+            .getElementById(`tab-${t}`)
+            .classList.toggle("hidden", t !== tabName);
+          const btn = document.getElementById(`tab-btn-${t}`);
+          if (t === tabName) {
+            btn.className =
+              "tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold bg-white text-emerald-700 shadow-sm transition";
+          } else {
+            btn.className =
+              "tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:text-slate-900 transition";
+          }
+        });
+      }
+
+      // 4. Preprocess Image to Tensor [1, 224, 224, 3] normalized [-1, 1]
+      function imageElementToTensor(imgEl) {
+        const canvas = document.getElementById("prep-canvas");
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, 224, 224);
+        ctx.drawImage(imgEl, 0, 0, 224, 224);
+        const imageData = ctx.getImageData(0, 0, 224, 224).data;
+
+        const floatData = new Float32Array(1 * 224 * 224 * 3);
+        let j = 0;
+        for (let i = 0; i < imageData.length; i += 4) {
+          // MobileNetV2 preprocess_input: (pixel / 127.5) - 1.0
+          floatData[j++] = imageData[i] / 127.5 - 1.0; // R
+          floatData[j++] = imageData[i + 1] / 127.5 - 1.0; // G
+          floatData[j++] = imageData[i + 2] / 127.5 - 1.0; // B
+        }
+        return new ort.Tensor("float32", floatData, [1, 224, 224, 3]);
+      }
+
+      async function predictImageElement(imgEl) {
+        if (!ortSession) {
+          alert("Model AI masih dimuat, tunggu beberapa detik lalu coba lagi.");
+          return null;
+        }
+        const tensor = imageElementToTensor(imgEl);
+        const inputName = ortSession.inputNames[0];
+        const outputName = ortSession.outputNames[0];
+        const results = await ortSession.run({ [inputName]: tensor });
+        const probs = Array.from(results[outputName].data);
+
+        let maxIdx = 0;
+        for (let i = 1; i < probs.length; i++) {
+          if (probs[i] > probs[maxIdx]) maxIdx = i;
+        }
+        return {
+          topClass: CLASSES[maxIdx],
+          confidence: probs[maxIdx] * 100,
+          probs,
+        };
+      }
+
+      // 5. Render Single Result
+      function displaySingleResult(imgSrc, sourceLabel, pred) {
+        const info = WASTE_INFO[pred.topClass];
+        const threshold = Number(threshSlider.value);
+
+        document.getElementById("result-section").classList.remove("hidden");
+        document.getElementById("preview-img").src = imgSrc;
+        document.getElementById("preview-caption").textContent = sourceLabel;
+
+        const lowConfAlert = document.getElementById("low-conf-alert");
+        lowConfAlert.classList.toggle("hidden", pred.confidence >= threshold);
+
+        const banner = document.getElementById("res-banner");
+        banner.style.borderLeftColor = info.hex;
+
+        const badge = document.getElementById("res-badge");
+        badge.style.backgroundColor = info.hex;
+        badge.textContent = info.tong;
+
+        document.getElementById("res-title").textContent =
+          `${info.ikon} ${info.nama}`;
+        document.getElementById("res-conf").textContent =
+          `${pred.confidence.toFixed(2)}%`;
+        document.getElementById("res-price").textContent = info.hargaText;
+        document.getElementById("res-guide").textContent = info.panduan;
+
+        // Render Probability Bars
+        const sorted = CLASSES.map((cls, idx) => ({
+          cls,
+          prob: pred.probs[idx] * 100,
+        })).sort((a, b) => b.prob - a.prob);
+
+        const barsContainer = document.getElementById("prob-bars");
+        barsContainer.innerHTML = sorted
+          .map((item) => {
+            const itemInfo = WASTE_INFO[item.cls];
+            return `
+          <div>
+            <div class="flex justify-between text-xs font-semibold mb-0.5">
+              <span>${itemInfo.ikon} ${itemInfo.nama}</span>
+              <span>${item.prob.toFixed(1)}%</span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+              <div class="h-2 rounded-full transition-all duration-500" style="width: ${item.prob}%; background-color: ${itemInfo.hex};"></div>
+            </div>
+          </div>
+        `;
+          })
+          .join("");
+
+        addHistoryRecord(sourceLabel, pred.topClass, pred.confidence);
+        document
+          .getElementById("result-section")
+          .scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      // 6. File Upload Handler
+      document.getElementById("file-input").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = async () => {
+            const pred = await predictImageElement(img);
+            if (pred) displaySingleResult(ev.target.result, file.name, pred);
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      // 7. Live Camera Handlers
+      const camContainer = document.getElementById("camera-container");
+      const videoEl = document.getElementById("webcam");
+
+      document
+        .getElementById("btn-toggle-cam")
+        .addEventListener("click", async () => {
+          try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: "environment" },
+              audio: false,
+            });
+            videoEl.srcObject = cameraStream;
+            camContainer.classList.remove("hidden");
+          } catch (err) {
+            alert(
+              "Tidak dapat mengakses kamera. Pastikan izin kamera aktif di browser.",
+            );
+          }
+        });
+
+      document.getElementById("btn-close-cam").addEventListener("click", () => {
+        if (cameraStream) {
+          cameraStream.getTracks().forEach((track) => track.stop());
+          cameraStream = null;
+        }
+        camContainer.classList.add("hidden");
+      });
+
+      document
+        .getElementById("btn-capture")
+        .addEventListener("click", async () => {
+          const snapCanvas = document.createElement("canvas");
+          snapCanvas.width = videoEl.videoWidth || 640;
+          snapCanvas.height = videoEl.videoHeight || 480;
+          snapCanvas.getContext("2d").drawImage(videoEl, 0, 0);
+          const dataUrl = snapCanvas.toDataURL("image/jpeg", 0.9);
+
+          const img = new Image();
+          img.onload = async () => {
+            const pred = await predictImageElement(img);
+            if (pred) displaySingleResult(dataUrl, "Kamera Langsung", pred);
+          };
+          img.src = dataUrl;
+        });
+
+      // 8. Instant Synthetic Sample Tester (Zero external dependency)
+      function runDemoSample(type) {
+        const c = document.createElement("canvas");
+        c.width = 224;
+        c.height = 224;
+        const ctx = c.getContext("2d");
+
+        // Draw realistic color/texture cue on white background matching TrashNet style
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(0, 0, 224, 224);
+
+        if (type === "cardboard") {
+          ctx.fillStyle = "#b5835a";
+          ctx.fillRect(42, 52, 140, 120);
+          ctx.strokeStyle = "#8c5e35";
+          ctx.lineWidth = 4;
+          ctx.strokeRect(42, 52, 140, 120);
+          ctx.beginPath();
+          ctx.moveTo(42, 112);
+          ctx.lineTo(182, 112);
+          ctx.stroke();
+        } else if (type === "plastic") {
+          ctx.fillStyle = "#bae6fd";
+          ctx.beginPath();
+          ctx.roundRect(82, 35, 60, 155, 16);
+          ctx.fill();
+          ctx.fillStyle = "#0284c7";
+          ctx.fillRect(96, 20, 32, 16);
+          ctx.fillStyle = "#38bdf8";
+          ctx.fillRect(82, 95, 60, 35);
+        } else if (type === "metal") {
+          ctx.fillStyle = "#94a3b8";
+          ctx.beginPath();
+          ctx.roundRect(72, 48, 80, 130, 12);
+          ctx.fill();
+          ctx.fillStyle = "#cbd5e1";
+          ctx.fillRect(84, 48, 18, 130);
+        } else if (type === "paper") {
+          ctx.fillStyle = "#ffffff";
+          ctx.shadowColor = "rgba(0,0,0,0.15)";
+          ctx.shadowBlur = 10;
+          ctx.fillRect(52, 34, 120, 156);
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "#cbd5e1";
+          for (let y = 55; y < 170; y += 16) ctx.fillRect(68, y, 88, 4);
+        } else if (type === "glass") {
+          ctx.fillStyle = "#15803d";
+          ctx.beginPath();
+          ctx.roundRect(84, 65, 56, 125, 10);
+          ctx.fill();
+          ctx.fillRect(98, 28, 28, 42);
+        } else {
+          ctx.fillStyle = "#3f3f46";
+          ctx.beginPath();
+          ctx.arc(112, 118, 56, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#71717a";
+          ctx.fillRect(75, 95, 74, 30);
+        }
+
+        const dataUrl = c.toDataURL("image/png");
+        const img = new Image();
+        img.onload = async () => {
+          const pred = await predictImageElement(img);
+          if (pred) displaySingleResult(dataUrl, `Sampel Uji (${type})`, pred);
+        };
+        img.src = dataUrl;
+      }
+
+      // 9. Batch Upload Handler
+      document
+        .getElementById("batch-input")
+        .addEventListener("change", async (e) => {
+          const files = Array.from(e.target.files);
+          if (!files.length) return;
+          const grid = document.getElementById("batch-grid");
+          grid.innerHTML = `<p class="col-span-full text-xs text-emerald-700 font-semibold">Memproses ${files.length} foto...</p>`;
+
+          let cardsHtml = "";
+          for (const file of files) {
+            const dataUrl = await new Promise((res) => {
+              const r = new FileReader();
+              r.onload = (ev) => res(ev.target.result);
+              r.readAsDataURL(file);
+            });
+
+            const img = await new Promise((res) => {
+              const i = new Image();
+              i.onload = () => res(i);
+              i.src = dataUrl;
+            });
+
+            const pred = await predictImageElement(img);
+            if (!pred) continue;
+            const info = WASTE_INFO[pred.topClass];
+            addHistoryRecord(file.name, pred.topClass, pred.confidence);
+
+            cardsHtml += `
+          <div class="border border-slate-200 rounded-xl p-3 bg-white flex gap-3 items-center shadow-sm">
+            <img src="${dataUrl}" class="w-16 h-16 rounded-lg object-cover bg-slate-100 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold text-white mb-1" style="background:${info.hex}">${info.tong}</span>
+              <p class="font-bold text-sm text-slate-900 truncate">${info.ikon} ${info.nama} (${pred.confidence.toFixed(1)}%)</p>
+              <p class="text-[11px] text-slate-500 truncate">${file.name}</p>
+            </div>
+          </div>
+        `;
+          }
+          grid.innerHTML = cardsHtml;
+        });
+
+      // 10. History & Eco-Wallet Calculator
+      function addHistoryRecord(source, cls, confidence) {
+        const info = WASTE_INFO[cls];
+        const estRupiah = Math.round((info.beratGram / 1000) * info.hargaKg);
+        scanHistory.unshift({
+          waktu: new Date().toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }),
+          source,
+          cls,
+          kategori: `${info.ikon} ${info.nama}`,
+          tong: info.tong,
+          confidence: `${confidence.toFixed(1)}%`,
+          beratGram: info.beratGram,
+          estRupiah,
+          isRecyclable: cls !== "trash",
+        });
+        renderHistory();
+      }
+
+      function renderHistory() {
+        document.getElementById("hist-count").textContent = scanHistory.length;
+        document.getElementById("stat-total").textContent =
+          `${scanHistory.length} item`;
+
+        const recyclableCount = scanHistory.filter(
+          (x) => x.isRecyclable,
+        ).length;
+        const totalGram = scanHistory.reduce((acc, x) => acc + x.beratGram, 0);
+        const totalMoney = scanHistory.reduce((acc, x) => acc + x.estRupiah, 0);
+
+        document.getElementById("stat-recycle").textContent =
+          `${recyclableCount} item`;
+        document.getElementById("stat-weight").textContent =
+          totalGram >= 1000
+            ? `${(totalGram / 1000).toFixed(2)} kg`
+            : `${totalGram} gr`;
+        document.getElementById("stat-money").textContent =
+          `Rp ${totalMoney.toLocaleString("id-ID")}`;
+
+        const tbody = document.getElementById("history-tbody");
+        if (!scanHistory.length) {
+          tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-400">Belum ada riwayat pemindaian.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = scanHistory
+          .map(
+            (row) => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-2.5 px-2 text-slate-500">${row.waktu}</td>
+          <td class="py-2.5 px-2 font-medium max-w-[120px] truncate">${row.source}</td>
+          <td class="py-2.5 px-2 font-bold">${row.kategori}</td>
+          <td class="py-2.5 px-2 text-xs">${row.tong}</td>
+          <td class="py-2.5 px-2 font-semibold text-emerald-700">${row.confidence}</td>
+        </tr>
+      `,
+          )
+          .join("");
+      }
+
+      function clearHistory() {
+        scanHistory = [];
+        renderHistory();
+      }
+
+      function downloadCSV() {
+        if (!scanHistory.length) {
+          alert("Belum ada data riwayat untuk diunduh.");
+          return;
+        }
+        const headers = [
+          "Waktu",
+          "Sumber_Foto",
+          "Kategori",
+          "Tempat_Sampah",
+          "Keyakinan",
+          "Estimasi_Berat_Gram",
+          "Estimasi_Rupiah",
+        ];
+        const rows = scanHistory.map((r) =>
+          [
+            r.waktu,
+            `"${r.source}"`,
+            `"${r.kategori}"`,
+            `"${r.tong}"`,
+            r.confidence,
+            r.beratGram,
+            r.estRupiah,
+          ].join(","),
+        );
+        const csvContent =
+          "data:text/csv;charset=utf-8," +
+          [headers.join(","), ...rows].join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute(
+          "download",
+          `rekap_pemilahan_sampah_${new Date().toISOString().slice(0, 10)}.csv`,
+        );
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    </script>
+  </body>
+</html>
